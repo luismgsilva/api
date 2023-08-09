@@ -70,8 +70,8 @@ def create_webhook(payload: WebhookPayload):
         # Write payload to file for debug purposes
         debug(payload)
 
-        # tmp
-        # publish_to_mqtt("webhook_data", str(payload.json()))
+        # Publishes a message to an MQTT broker
+        publish_to_mqtt("webhook_data", str(payload.json()))
         
         return db_payload
         
@@ -97,20 +97,18 @@ def read_data(skip: int = 0, limit: int = 10):
 async def root():
     return {"message": "Hello World"}
 
-#----------
+# from sqlalchemy import event
+# @event.listens_for(WebhookPayloadCreate, "before_insert")
+# def before_insert_listener(mapper, connection, target):
+#     print("funciona before insert: ", target.id)
+#     publish_to_mqtt("webhook_data", target.repository_name)
 
-from sqlalchemy import event
-@event.listens_for(WebhookPayloadCreate, "before_insert")
-def before_insert_listener(mapper, connection, target):
-    print("funciona before insert: ", target.id)
-    publish_to_mqtt("webhook_data", target.repository_name)
+# session = SessionsLocal()
+# @event.listens_for(session, "after_commit")
+# def after_commit_listener(session):
+#     print("funciona after commit.")
 
-
-session = SessionsLocal()
-@event.listens_for(session, "after_commit")
-def after_commit_listener(session):
-    print("funciona after commit.")
-
+# Publishes a message to an MQTT broker
 def publish_to_mqtt(topic, payload):
     mqtt_broker = "localhost"
     mqtt_port = 1883
@@ -122,8 +120,6 @@ def publish_to_mqtt(topic, payload):
         mqtt_client.disconnect()
     except Exception as e:
         print("Error publishing to MQTT:", str(e))
-
-#----------
 
 # Write payload to file for debug purposes
 import json
