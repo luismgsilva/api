@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Sequence
+from sqlalchemy import create_engine, Column, Integer, String, Sequence, Enum, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -10,9 +10,16 @@ SessionsLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Create a base class for declarative models
 Base = declarative_base()
 
-# Define a sample model
-class WebhookPayload(Base):
-    __tablename__ = "webhook_payloads"
+class StateMachine(Base):
+    __tablename__ = "state_machine"
+
+    id = Column(Integer, primary_key=True)
+    machine = Column(String)
+    state = Column(Enum("FREE", "PENDING" ,"EXECUTING", "MAINTENANCE", name="machine_state_enum"))
+
+
+class Tasks(Base):
+    __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
     ref = Column(String)
@@ -27,6 +34,16 @@ class WebhookPayload(Base):
     commit_url = Column(String)
     commit_author_name = Column(String)
     commit_author_email = Column(String)
-    
+
+    state = Column(Enum("QUEUE", "PENDING", "EXECUTING", "PASSED", "FAILED", "KILLED", name="task_state_enum"))
+    state_machine_id = Column(Integer, ForeignKey('state_machine.id'), unique=True)
+    process_id = Column(Integer) # -> task ID being processed.
+
 # Create the database tables
 Base.metadata.create_all(bind=engine)
+
+if __name__ == "__main__":
+    db = SessionsLocal()
+    new_machine = StateMachine(machine="localhost", state="FREE")
+    db.add(new_machine)
+    db.commit()

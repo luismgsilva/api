@@ -1,11 +1,12 @@
 
 **General Setup**
 ```bash
-$ python3 -m venv myenv 
-$ source myenv/bin/activate 
-$ pip install fastapi uvicorn 
+$ python3 -m venv myenv
+$ source myenv/bin/activate
+$ pip install fastapi uvicorn
 $ pip install sqlalchemy
 $ pip install paho-mqtt
+$ pip install requests
 ```
 
 
@@ -22,7 +23,7 @@ $ sudo systemctl enable mosquitto
 $ mosquito_sub -h localhost -t test/topic
 $ mosquito_pub -h localhost -t test/topic -m "Hello World!"
 
-# Configure Access Control to enable 
+# Configure Access Control to enable
 # password-based Authentication
 $ sudo mosquitto_passwd -c /etc/mosquitto/passwd <username>
 $ sudo cat /etc/mosquitto/mosquitto.conf << 'EOF'
@@ -39,7 +40,7 @@ $ python3 bd.py
 
 **Initialize API**
 ```bash
-$ uvicorn api:app --reload
+$ python3 api.py
 ```
 
 **Initialize MQTT Subscriber**
