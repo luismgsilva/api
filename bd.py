@@ -16,9 +16,7 @@ class StateMachine(Base):
     id = Column(Integer, primary_key=True)
     machine = Column(String)
     state = Column(Enum("FREE", "PENDING" ,"EXECUTING", "MAINTENANCE", name="machine_state_enum"))
-    # task = Column(Integer) -> task ID being processed.
 
-    process_id = Column(String)
 
 class Tasks(Base):
     __tablename__ = "tasks"
@@ -37,9 +35,9 @@ class Tasks(Base):
     commit_author_name = Column(String)
     commit_author_email = Column(String)
 
-    state = Column(Enum("PENDING", "EXECUTING", "PASSED", "FAILED", name="task_state_enum"))
+    state = Column(Enum("PENDING", "EXECUTING", "PASSED", "FAILED", "KILLED", name="task_state_enum"))
     state_machine_id = Column(Integer, ForeignKey('state_machine.id'), unique=True)
-    # state_machine_id = Column(Integer)
+    process_id = Column(Integer) # -> task ID being processed.
 
 # Create the database tables
 Base.metadata.create_all(bind=engine)
