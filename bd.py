@@ -35,7 +35,7 @@ class Tasks(Base):
     commit_author_name = Column(String)
     commit_author_email = Column(String)
 
-    state = Column(Enum("PENDING", "EXECUTING", "PASSED", "FAILED", "KILLED", name="task_state_enum"))
+    state = Column(Enum("QUEUE", "PENDING", "EXECUTING", "PASSED", "FAILED", "KILLED", name="task_state_enum"))
     state_machine_id = Column(Integer, ForeignKey('state_machine.id'), unique=True)
     process_id = Column(Integer) # -> task ID being processed.
 

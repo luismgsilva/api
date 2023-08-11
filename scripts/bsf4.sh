@@ -1,25 +1,9 @@
 #!/bin/bash
 
-LOG="/home/luis/work/thesis/api/log"
-TASK_NAME=$1
-TASK_ID=$2
-
 source "/home/luis/work/thesis/api/scripts/return_exit.sh"
 
-# Function to execute a command with error handling
-execute_command() {
-  local cmd="$1"
-  local error_message="$2"
-  echo "CI Executing: $cmd" >> $LOG
-  eval "$cmd" >> $LOG
-  result=$?
-  if [ $result -ne 0 ]; then
-    echo "$error_message"
-    exit_return $TASK_ID 1
-  fi
-}
-
-echo "" > "$LOG"
+TASK_NAME=$1
+TASK_ID=$2
 
 # Example usage of execute_command function
 execute_command "echo $TASK_NAME" \

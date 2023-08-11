@@ -6,7 +6,7 @@ import logging
 import time
 
 # Constants
-BASE_URL          = "https://90cb-213-22-250-155.ngrok.io"
+BASE_URL          = "https://a5e0-213-22-250-155.ngrok.io"
 START_TASK_SCRIPT = "/home/luis/work/thesis/api/scripts/bsf4.sh"
 KILL_TASK_SCRIPT  = "/home/luis/work/thesis/api/scripts/kills.sh"
 

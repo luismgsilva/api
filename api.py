@@ -52,6 +52,25 @@ def debug(payload: WebhookPayload):
     with open(file_path, 'w') as json_file:
         json.dump(payload.dict(), json_file, indent=4)
 
+def task_handler():
+
+    try:
+        with SessionsLocal() as db:
+            # Do I do a new search for a available server?
+            pending_task = db.query(Tasks).filter_by(state="QUEUE").first()
+            machine = db.query(StateMachine).filter_by(state='FREE').first()
+            if pending_task and machine:
+                pending_task.state = "PENDING"
+                machine.state = "PENDING"
+                pending_task.state_machine_id = machine.id
+                db.commit()
+
+                publish_to_mqtt("start_task", { "task_id": pending_task.id } )
+
+    except Exception as e:
+        logger.exception("Error processing task_handler")
+        raise HTTPException(status_code=500, detail="Error processing task_handler")
+
 # Process webhook payload
 @app.post("/webhook")
 def webhook_handler(payload: WebhookPayload):
@@ -71,26 +90,27 @@ def webhook_handler(payload: WebhookPayload):
                 commit_url=payload.commits[0]["url"],
                 commit_author_name=payload.commits[0]["author"]["name"],
                 commit_author_email=payload.commits[0]["author"]["email"],
-                state = "PENDING"
+                state = "QUEUE"
             )
 
             db.add(db_payload)
             db.commit()
-            db.refresh(db_payload)
-            free_machines = db.query(StateMachine).filter_by(state='FREE').all()
+            # db.refresh(db_payload)
 
 
-            if free_machines:
-                machine = free_machines[0]
-                machine.state = 'PENDING'
+            task_handler()
+            # free_machines = db.query(StateMachine).filter_by(state='FREE').all()
+            # if free_machines:
+                # machine = free_machines[0]
+                # machine.state = 'PENDING'
 
-                pending_task = db.query(Tasks).filter_by(state="PENDING").first()
-                pending_task.state_machine_id = machine.id
+                # pending_task = db.query(Tasks).filter_by(state="QUEUE").first()
+                # pending_task.state_machine_id = machine.id
 
-                db.commit()
+                # db.commit()
 
-                # Publishes a message to an MQTT broker
-                publish_to_mqtt("start_task", { "task_id": pending_task.id } )
+                # # Publishes a message to an MQTT broker
+                # publish_to_mqtt("start_task", { "task_id": pending_task.id } )
 
         return db_payload
 
@@ -148,10 +168,11 @@ def put_data(body: dict):
 
             db.commit()
 
+        # Call new tasks to process.
+        task_handler()
+
         return body
 
-    # Call new tasks to process.
-    # TO DO
 
     except Exception as e:
         logger.exception("Error updating task status: %s", str(e))
