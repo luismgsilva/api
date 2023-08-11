@@ -40,7 +40,7 @@ $ python3 bd.py
 
 **Initialize API**
 ```bash
-$ uvicorn api:app --reload
+$ python3 api.py
 ```
 
 **Initialize MQTT Subscriber**
