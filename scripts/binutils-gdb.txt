@@ -1,0 +1,7 @@
+cd /home/luis/work/bsf/builder
+bsf clean -y
+bsf execute qemu
+module use --append /home/luis/work/bsf/builder/mod
+module load qemu
+module path qemu
+qemu-system-arc --version
