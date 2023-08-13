@@ -1,74 +1,64 @@
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, HTTPException, Depends
-from sqlalchemy import create_engine, Column, Integer, String, Sequence
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from bd import StateMachine, Tasks, User
-from pydantic import BaseModel
+# from sqlalchemy import create_engine, Column, Integer, String, Sequence
+# from sqlalchemy.ext.declarative import declarative_base
+# from sqlalchemy.orm import sessionmaker
+# from bd import StateMachine, Tasks, User
+# from pydantic import BaseModel
 import json
 from datetime import datetime
 import logging
 from auth.auth import AuthHandler
 from auth.schemas import AuthDetails
 
+from infra.repository.tasks_repository import TasksRepository
+from infra.repository.machines_repository import MachinesRepository
+from infra.repository.users_repository import UsersRepository
+
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Define the database connection
-DATABASE_URL = "sqlite:///mydatabase.db"
-engine = create_engine(DATABASE_URL, echo=True)
-SessionsLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
 app = FastAPI()
 auth_handler = AuthHandler()
 
-# Pydantic model for the item
-class WebhookPayload(BaseModel):
-    ref: str
-    before: str
-    after: str
-    repository: dict
-    pusher: dict
-    commits: list
-
-# Define a base class for declarative models
-Base = declarative_base()
+tasks_repo = TasksRepository()
+machines_repo = MachinesRepository()
+users_repo = UsersRepository()
 
 # Publishes a message to an MQTT broker
-def publish_to_mqtt(topic, payload):
+def publish_to_mqtt(topic, **body):
     mqtt_broker = "localhost"
     mqtt_port = 1883
     mqtt_client = mqtt.Client()
-    payload = json.dumps(payload)
+    body = json.dumps(body)
 
     try:
         mqtt_client.connect(mqtt_broker, mqtt_port)
-        mqtt_client.publish(topic, payload)
+        mqtt_client.publish(topic, body)
         mqtt_client.disconnect()
     except Exception as e:
         logger.error("Error publishing to MQTT: %s", str(e))
 
 # Write payload to a file for debug purposes
-def debug(payload: WebhookPayload):
+def debug(payload: dict):
     file_path = "webhook.json"
     with open(file_path, 'w') as json_file:
-        json.dump(payload.dict(), json_file, indent=4)
+        json.dump(payload, json_file, indent=4)
 
 def task_handler():
 
     try:
-        with SessionsLocal() as db:
-            # Do I do a new search for a available server?
-            pending_task = db.query(Tasks).filter_by(state="QUEUE").first()
-            machine = db.query(StateMachine).filter_by(state='FREE').first()
-            if pending_task and machine:
-                pending_task.state = "PENDING"
-                machine.state = "PENDING"
-                pending_task.state_machine_id = machine.id
-                db.commit()
 
-                publish_to_mqtt("start_task", { "task_id": pending_task.id } )
+        task = tasks_repo.search_by_state(state="QUEUE")
+        machine = machines_repo.search_by_state(state="AVAILABLE")
+        print(f"TASK: {task}")
+        print(f"MACHINE: {machine}")
+        if task and machine:
+            tasks_repo.update(task.id, state="PENDING")
+            tasks_repo.update(task.id, machine_id=machine.id)
+            machines_repo.update(machine.id, state="PENDING")
+            publish_to_mqtt("start_task",  task_id=task.id )
 
     except Exception as e:
         logger.exception("Error processing task_handler")
@@ -76,36 +66,20 @@ def task_handler():
 
 # Process webhook payload
 @app.post("/webhook")
-def webhook_handler(payload: WebhookPayload):
+# def webhook_handler(payload: WebhookPayload):
+def webhook_handler(payload: dict):
     try:
 
-        with SessionsLocal() as db:
+        tasks_repo = TasksRepository()
+        tasks_repo.insert(
+            repository_name=payload["repository"]["name"],
+            pusher_name=payload["pusher"]["name"]
+        )
+         # Write payload to file for debug purposes
+        debug(payload)
+        task_handler()
 
-            db_payload = Tasks(
-                ref=payload.ref,
-                before=payload.before,
-                after=payload.after,
-                repository_name=payload.repository["name"],
-                repository_full_name=payload.repository["full_name"],
-                pusher_name=payload.pusher["name"],
-                commit_id=payload.commits[0]["id"],
-                commit_message=payload.commits[0]["message"],
-                commit_url=payload.commits[0]["url"],
-                commit_author_name=payload.commits[0]["author"]["name"],
-                commit_author_email=payload.commits[0]["author"]["email"],
-                state = "QUEUE"
-            )
-
-            db.add(db_payload)
-            db.commit()
-            # db.refresh(db_payload)
-
-            # Write payload to file for debug purposes
-            debug(payload)
-
-            task_handler()
-
-        return db_payload
+        return payload
 
     except Exception as e:
         logger.exception("Error processing webhook: %s", str(e))
@@ -115,10 +89,9 @@ def webhook_handler(payload: WebhookPayload):
 @app.get("/tasks")
 def read_data(skip: int = 0, limit: int = 10):
     try:
-        with SessionsLocal() as db:
-            data = db.query(Tasks).offset(skip).limit(limit).all()
 
-        return data
+        tasks = tasks_repo.select()
+        return tasks
 
     except Exception as e:
         logger.exception("Error getting tasks: %s", str(e))
@@ -128,13 +101,11 @@ def read_data(skip: int = 0, limit: int = 10):
 @app.get("/kill_task/")
 def kill_task(id: int):
     try:
-        with SessionsLocal() as db:
-            task = db.query(Tasks).filter_by(id=id).first()
 
-            if task.state == "EXECUTING":
-                process_id = task.process_id
-                publish_to_mqtt("kill_task", {"task_id": id, "process_id": process_id})
-
+        task = tasks_repo.search_by_id(id=id)
+        if task.state == "EXECUTING":
+            process_id = task.process_id
+            publish_to_mqtt("kill_task", task_id=id, process_id=process_id)
 
     except Exception as e:
         logger.exception("Error killing task: %s", str(e))
@@ -144,22 +115,17 @@ def kill_task(id: int):
 @app.put("/ci_task")
 def put_data(body: dict):
     try:
-        with SessionsLocal() as db:
-            task_id = body["task_id"]
 
-            task = db.query(Tasks).filter_by(id=task_id).first()
-            task.process_id = None
-            if int(body["exit_code"]) == 0:
-                task.state = "PASSED"
-            else:
-                task.state = "FAILED"
+        task_id = body["task_id"]
+        tasks_repo.update(task_id, process_id=None)
+        if int(body["exit_code"]) == 0:
+            tasks_repo.update(task_id, state="PASSED")
+        else:
+            tasks_repo.update(task_id, state="FAILED")
 
-            machine_id = task.state_machine_id
-            machine = db.query(StateMachine).filter_by(id=machine_id).first()
-            machine.state = 'FREE'
-            task.state_machine_id = None
-
-            db.commit()
+        machine_id = tasks_repo.get_data(task_id, "machine_id")
+        machines_repo.update(machine_id, state="AVAILABLE")
+        tasks_repo.update(task_id, machine_id=None)
 
         # Call new tasks to process.
         task_handler()
@@ -173,23 +139,21 @@ def put_data(body: dict):
 
 # Update process ID for a task
 @app.put("/ci_update_process_id")
-def update_process_id(data: dict):
+def update_process_id(body: dict):
     try:
-        with SessionsLocal() as db:
-            task_id = data["task_id"]
-            process_id = data["process_id"]
 
-            task = db.query(Tasks).filter_by(id=task_id).first()
-            task.process_id = process_id
+        task_id = body["task_id"]
+        process_id = body["process_id"]
+        tasks_repo.update(task_id, process_id=process_id)
 
-            db.commit()
-
-        return data
+        return body
 
     except Exception as e:
         logger.exception("Error updating process ID: %s", str(e))
         raise HTTPException(status_code=500, detail="Error updating process ID")
 
+
+# This is being executed before the /ci_task which changes the state from "KILLED" to "FAILED"
 # Mark a task as killed
 @app.put("/kill_task_ok")
 def kill_task(data: dict):
@@ -198,20 +162,9 @@ def kill_task(data: dict):
     # that means that the bsf4.sh still sends a FAILED signal to the API and
     # shuts down the current execution.
     try:
-
-        with SessionsLocal() as db:
-
-            task_id = data["task_id"]
-            task = db.query(Tasks).filter_by(id=task_id).first()
-            task.state = "KILLED"
-            # task.process_id = None
-
-            # machine_id = task.state_machine_id
-            # print(f"MACHINE ID CRL:  {machine_id}")
-            # machine = db.query(StateMachine).filter_by(id=machine_id).first()
-            # machine.state = "FREE"
-
-            db.commit()
+        task_id = data["task_id"]
+        print(f"LUIS TASK ID: {task_id}")
+        tasks_repo.update(task_id, state="KILLED")
 
     except Exception as e:
         logger.exception("Error marking task as killed: %s", str(e))
@@ -221,22 +174,15 @@ def kill_task(data: dict):
 @app.get("/ci_task/")
 def get_data(id: int):
     try:
+        machine_id = tasks_repo.get_data(id, "machine_id")
+        machines_repo.update(machine_id, state="RUNNING")
+        tasks_repo.update(id, state="EXECUTING")
 
-        body = {}
-        with SessionsLocal() as db:
-
-            task = db.query(Tasks).filter_by(id=id).first()
-            machine_id = task.state_machine_id
-            machine = db.query(StateMachine).filter_by(id=machine_id).first()
-
-            machine.state = 'EXECUTING'
-            task.state = 'EXECUTING'
-            task_id = task.id
-            task_name = task.repository_name
-            body = { "task_id": task_id, "task_name": task_name }
-            db.commit()
+        task_name = tasks_repo.get_data(id, "repository_name")
+        body = {"task_id": id, "task_name": task_name}
 
         return body
+
 
     except Exception as e:
         logger.exception("Error updating task and machine status: %s", str(e))
@@ -246,29 +192,23 @@ def get_data(id: int):
 @app.get("/machines")
 def read_machines(skip: int = 0, limit: int = 10):
     try:
-        with SessionsLocal() as db:
-            data = db.query(StateMachine).offset(skip).limit(limit).all()
-
-        return data
+        return machines_repo.select()
 
     except Exception as e:
         logger.exception("Error getting machines: %s", str(e))
         raise HTTPException(status_code=500, detail="Error getting machines")
 
-# -------
-
 
 @app.post("/login")
 def login(auth_details: AuthDetails):
     try:
-        with SessionsLocal() as db:
+        user = users_repo.select_by_name(auth_details.username)
+        user_password = users_repo.search_by_name(auth_details.username, "password")
 
-            user = db.query(User).filter_by(name=auth_details.username).first()
-
-            if (user is None) or (not auth_handler.verify_password(auth_details.password, user.password)):
-              raise HTTPException(status_code=500, detail="Invalid username and/or password")
-            token = auth_handler.encode_token(user.name)
-            return { "token": token }
+        if (user is None) or (not auth_handler.verify_password(auth_details.password, user_password)):
+            raise HTTPException(status_code=500, detail="Invalid username and/or password")
+        token = auth_handler.encode_token(auth_details.username)
+        return { "token": token }
 
     except Exception as e:
         logger.exception("Error login: %s", str(e))
@@ -277,21 +217,15 @@ def login(auth_details: AuthDetails):
 @app.post("/register")
 def register(auth_details: AuthDetails):
     try:
-        with SessionsLocal() as db:
-            user = db.query(User).filter_by(name=auth_details.username).first()
-            if user:
-              raise HTTPException(status_code=400, detail="Username is taken")
-            print(auth_details.password)
-            hashed_password = auth_handler.get_password_hash(auth_details.password)
-
-            user = User(
-                name = auth_details.username,
-                password = hashed_password,
-                permission = "badjoras"
-            )
-            db.add(user)
-            db.commit()
-            return
+        user = users_repo.select_by_name(auth_details.username)
+        if user:
+          raise HTTPException(status_code=400, detail="Username is taken")
+        hashed_password = auth_handler.get_password_hash(auth_details.password)
+        users_repo.insert(
+            name=auth_details.username,
+            password = hashed_password,
+            permission = "common"
+        )
     except Exception as e:
         logger.exception("Error register: %s", str(e))
         raise HTTPException(status_code=500, detail="Error register")
@@ -306,31 +240,23 @@ def unprotected():
 
 def has_permission(username, required_permission=None):
     try:
-        with SessionsLocal() as db:
-            if required_permission == None:
-                return True
+        if required_permission == None:
+            return True
 
-            user = db.query(User).filter_by(name=username).first()
-            if user.permission == required_permission:
-                return True
+        user_permission = users_repo.search_by_name(username, "permission")
+        if user_permission == required_permission:
+            return True
 
-            return False
+        return False
     except Exception as e:
         logger.exception("Error login: %s", str(e))
         raise HTTPException(status_code=500, detail="Error login")
 
-
-
-
 @app.get("/protected")
 def protected(body: dict, username=Depends(auth_handler.auth_wrapper)):
-    if not has_permission(username, "badjora"):
+    if not has_permission(username, "common"):
         raise HTTPException(status_code=401, detail="Permission denied")
     return { "name": username }
-
-
-
-
 
 # Hello World
 @app.get("/")

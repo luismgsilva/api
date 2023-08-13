@@ -6,7 +6,7 @@ import logging
 import time
 
 # Constants
-BASE_URL          = "https://a5e0-213-22-250-155.ngrok.io"
+BASE_URL          = "http://127.0.0.1:8000"
 START_TASK_SCRIPT = "/home/luis/work/thesis/api/scripts/bsf4.sh"
 KILL_TASK_SCRIPT  = "/home/luis/work/thesis/api/scripts/kills.sh"
 
@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 # Function to start a task
 def start_task(body: dict):
 
-    time.sleep(10)
+    print("Ola")
+
+    time.sleep(1)
 
     try:
         task_id = str(body["task_id"])

@@ -7,7 +7,7 @@ exit_return() {
   # Perform the PUT request indicating the exit return value
   local task_id=$1
   local exit_value=$2
-  local url="https://5289-213-22-250-155.ngrok.io/ci_task"
+  local url="http://127.0.0.1:8000/ci_task"
 
   local body="{ \"task_id\": \"$TASK_ID\", \"exit_code\": \"$exit_value\" }"
   local put_response=$(curl -X PUT -H "Content-Type: application/json" -d "$body" "$url")
