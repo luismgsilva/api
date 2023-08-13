@@ -1,13 +1,15 @@
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy import create_engine, Column, Integer, String, Sequence
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from bd import StateMachine, Tasks
+from bd import StateMachine, Tasks, User
 from pydantic import BaseModel
 import json
 from datetime import datetime
 import logging
+from auth.auth import AuthHandler
+from auth.schemas import AuthDetails
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +21,7 @@ engine = create_engine(DATABASE_URL, echo=True)
 SessionsLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 app = FastAPI()
+auth_handler = AuthHandler()
 
 # Pydantic model for the item
 class WebhookPayload(BaseModel):
@@ -97,20 +100,10 @@ def webhook_handler(payload: WebhookPayload):
             db.commit()
             # db.refresh(db_payload)
 
+            # Write payload to file for debug purposes
+            debug(payload)
 
             task_handler()
-            # free_machines = db.query(StateMachine).filter_by(state='FREE').all()
-            # if free_machines:
-                # machine = free_machines[0]
-                # machine.state = 'PENDING'
-
-                # pending_task = db.query(Tasks).filter_by(state="QUEUE").first()
-                # pending_task.state_machine_id = machine.id
-
-                # db.commit()
-
-                # # Publishes a message to an MQTT broker
-                # publish_to_mqtt("start_task", { "task_id": pending_task.id } )
 
         return db_payload
 
@@ -261,6 +254,83 @@ def read_machines(skip: int = 0, limit: int = 10):
     except Exception as e:
         logger.exception("Error getting machines: %s", str(e))
         raise HTTPException(status_code=500, detail="Error getting machines")
+
+# -------
+
+
+@app.post("/login")
+def login(auth_details: AuthDetails):
+    try:
+        with SessionsLocal() as db:
+
+            user = db.query(User).filter_by(name=auth_details.username).first()
+
+            if (user is None) or (not auth_handler.verify_password(auth_details.password, user.password)):
+              raise HTTPException(status_code=500, detail="Invalid username and/or password")
+            token = auth_handler.encode_token(user.name)
+            return { "token": token }
+
+    except Exception as e:
+        logger.exception("Error login: %s", str(e))
+        raise HTTPException(status_code=500, detail="Error login")
+
+@app.post("/register")
+def register(auth_details: AuthDetails):
+    try:
+        with SessionsLocal() as db:
+            user = db.query(User).filter_by(name=auth_details.username).first()
+            if user:
+              raise HTTPException(status_code=400, detail="Username is taken")
+            print(auth_details.password)
+            hashed_password = auth_handler.get_password_hash(auth_details.password)
+
+            user = User(
+                name = auth_details.username,
+                password = hashed_password,
+                permission = "badjoras"
+            )
+            db.add(user)
+            db.commit()
+            return
+    except Exception as e:
+        logger.exception("Error register: %s", str(e))
+        raise HTTPException(status_code=500, detail="Error register")
+
+@app.get("/unprotected")
+def unprotected():
+  return { "hello": "world" }
+
+# @app.get("/protected", dependencies=[Depends(has_permission, required_permission="can_access_protected")])
+# @app.get("/protected", dependencies=[Depends(auth_handler.auth_wrapper), Depends(has_permission, required_permission="can_access_protected")])
+# @app.get("/protected", dependencies=[Depends(auth_handler.auth_wrapper)])
+
+def has_permission(username, required_permission=None):
+    try:
+        with SessionsLocal() as db:
+            if required_permission == None:
+                return True
+
+            user = db.query(User).filter_by(name=username).first()
+            if user.permission == required_permission:
+                return True
+
+            return False
+    except Exception as e:
+        logger.exception("Error login: %s", str(e))
+        raise HTTPException(status_code=500, detail="Error login")
+
+
+
+
+@app.get("/protected")
+def protected(body: dict, username=Depends(auth_handler.auth_wrapper)):
+    if not has_permission(username, "badjora"):
+        raise HTTPException(status_code=401, detail="Permission denied")
+    return { "name": username }
+
+
+
+
 
 # Hello World
 @app.get("/")

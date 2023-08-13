@@ -3,10 +3,13 @@
 ```bash
 $ python3 -m venv myenv
 $ source myenv/bin/activate
-$ pip install fastapi uvicorn
-$ pip install sqlalchemy
-$ pip install paho-mqtt
-$ pip install requests
+$ pip install fastapi Version: 0.101.0
+$ pip install uvicorn Version: 0.23.2
+$ pip install sqlalchemy Version: 2.0.19
+$ pip install paho-mqtt Version: 1.6.1
+$ pip install requests Version: 2.31.0
+$ pip install PyJWT Version: 2.8.0
+$ pip install passlib Version: 1.7.4
 ```
 
 
