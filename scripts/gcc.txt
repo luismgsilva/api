@@ -1,0 +1,54 @@
+cd /scratch/luiss/bsf/builder-ci
+bsf clean -y
+
+#bsf set MOD_VERSION=$(date +'%Y%m%d-%H%M%S')
+
+date
+#bsf execute hs6x-gcc-baremetal
+#bsf execute hs6x-gcc-baremetal hs6x-gcc-linux
+#bsf execute hs5x-gcc-baremetal hs5x-gcc-linux
+#bsf execute archs-gcc-baremetal archs-gcc-linux
+
+date
+module use --append /scratch/luiss/bsf/builder-ci/mod
+module unuse /opt/modulefiles
+
+module load hs6x-gcc-baremetal
+#module load hs6x-gcc-linux
+#module load hs5x-gcc-baremetal
+#module load hs5x-gcc-linux
+#module load archs-gcc-baremetal
+#module load archs-gcc-linux
+
+module load qemu
+module load /opt/modulefiles/nsim/edge
+
+cd /scratch/luiss/bsf/testing-gcc-parallel
+
+#bsf clean -y
+
+bsf set NJOBS=32
+##timeout -v 10s bsf execute hs6x-gcc-baremetal-qemu hs6x-gcc-baremetal-nsim -p
+
+bsf execute hs6x-gcc-baremetal-qemu
+
+#bsf execute hs6x-gcc-baremetal-qemu hs6x-gcc-baremetal-nsim
+#bsf execute hs5x-gcc-baremetal-qemu hs5x-gcc-baremetal-nsim
+#bsf execute archs-gcc-baremetal-qemu archs-gcc-baremetal-nsim
+#bsf execute hs6x-gcc-linux-qemu-user hs5x-gcc-linux-qemu-user
+#bsf execute archs-gcc-linux-qemu-user
+
+date
+
+tmp_file=$(mktemp)
+echo "$tmp_file"
+bsf compare hs6x-gcc-baremetal-qemu HEAD -o html > "$tmp_file"
+tmpdir=$(mktemp -d)
+bsf cat hs6x-gcc-baremetal-qemu gcc.sum > "$tmpdir/gcc.sum"
+tar -cvf $tmpdir.tar $tmpdir
+python3 /scratch/luiss/bsf/api/scripts/fds3.py "$tmp_file" "$tmpdir.tar"
+
+
+
+
+#bsf publish

@@ -1,5 +1,6 @@
 from infra.configs.base import Base
 from sqlalchemy import Column, String, Integer, Boolean
+from sqlalchemy.orm import relationship
 
 class Users(Base):
     __tablename__ = "users"
@@ -10,7 +11,9 @@ class Users(Base):
     name = Column(String)
     password = Column(String)
     email_address = Column(String)
-    web_token = Column(String)
 
-    # delete
-    permission = Column(String)
+    permissions = Column(String(64))
+
+    # permissions = relationship('Permissions', secondary='user_permission', back_populates='users')
+    # roles = relationship('Roles', secondary='user_role', back_populates='users')
+

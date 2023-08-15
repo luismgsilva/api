@@ -1,4 +1,5 @@
 from infra.configs.connection import DBConnectionHandler
+from sqlalchemy.orm import joinedload
 from infra.entities.users import Users
 
 class UsersRepository:
@@ -10,46 +11,31 @@ class UsersRepository:
   def insert(self, **body):
     with DBConnectionHandler() as db:
       print(body)
-      data_insert = Users(
-          name = body["name"],
-          password = body["password"],
-          permission = body["permission"]
-      )
+      data_insert = Users(**body)
       db.session.add(data_insert)
       db.session.commit()
 
-  def select_by_id(self, id):
-    with DBConnectionHandler() as db:
-      data_select_by_id = db.session.query(Users).filter(Users.id == id).first()
-      return data_select_by_id
+      return data_insert.id
 
-  def select_by_name(self, name):
+  def select_test(self, key, value, return_key=None):
     with DBConnectionHandler() as db:
-      data_select_by_id = db.session.query(Users).filter(Users.name == name).first()
-      return data_select_by_id
+      data = db.session.query(Users).filter(getattr(Users, key) == value).first()
+      if not data:
+        return None
+      elif return_key == None:
+        return data
+      else:
+        return getattr(data, return_key)
 
   def delete(self, id):
     with DBConnectionHandler() as db:
-      data_delete = db.session.query(Users).filter(Users.id == id).first()
-      data_delete.delete()
+      data = db.session.query(Users).filter(Users.id == id).first()
+      data.delete()
       db.session.commit()
 
-  def update(self, id, **body):
+  def update(self, key, value, **body):
     with DBConnectionHandler() as db:
-      data_update = db.session.query(Users).filter(Users.id == id).first()
-      for key, value in body.items():
-        data_update.update({key: value})
+      data = db.session.query(Users).filter(getattr(Users, key) == value).first()
+      for key1, value1 in body.items():
+        setattr(data, key1, value1)
       db.session.commit()
-
-  # not sure
-  def search_by_id(self, id, key):
-    with DBConnectionHandler() as db:
-      data_search_by_id = db.session.query(Users).filter(Users.id == id).first()
-      return getattr(data_search_by_id, key)
-
-  def search_by_name(self, name, key):
-    with DBConnectionHandler() as db:
-      data_search_by_name = db.session.query(Users).filter(Users.name == name).first()
-      return getattr(data_search_by_name, key)
-
-

@@ -14,10 +14,15 @@ class MachinesRepository:
       db.session.add(data_insert)
       db.session.commit()
 
-  def search_by_state(self, state):
+  def select_test(self, key, value, return_key=None):
     with DBConnectionHandler() as db:
-      data_search_by_state = db.session.query(Machines).filter(Machines.state == state).first()
-      return data_search_by_state
+      data = db.session.query(Machines).filter(getattr(Machines, key) == value).first()
+      if not data:
+        return None
+      elif return_key == None:
+        return data
+      else:
+        return getattr(data, return_key)
 
   def delete(self, id):
     with DBConnectionHandler() as db:
@@ -25,9 +30,9 @@ class MachinesRepository:
       data_delete.delete()
       db.session.commit()
 
-  def update(self, id, **body):
+  def update(self, key, value, **body):
     with DBConnectionHandler() as db:
-      data_update = db.session.query(Machines).filter(Machines.id == id)
-      for key, value in body.items():
-        data_update.update({key: value})
+      data = db.session.query(Machines).filter(getattr(Machines, key) == value).first()
+      for key1, value1 in body.items():
+        setattr(data, key1, value1)
       db.session.commit()

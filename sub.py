@@ -7,8 +7,8 @@ import time
 
 # Constants
 BASE_URL          = "http://127.0.0.1:8000"
-START_TASK_SCRIPT = "/home/luis/work/thesis/api/scripts/bsf4.sh"
-KILL_TASK_SCRIPT  = "/home/luis/work/thesis/api/scripts/kills.sh"
+START_TASK_SCRIPT = "/scratch/luiss/bsf/api/scripts/bsf4.sh"
+KILL_TASK_SCRIPT = "/scratch/luiss/bsf/api/scripts/kills.sh"
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -16,12 +16,8 @@ logger = logging.getLogger(__name__)
 
 # Function to start a task
 def start_task(body: dict):
-
-    print("Ola")
-
-    time.sleep(1)
-
     try:
+        time.sleep(1)
         task_id = str(body["task_id"])
 
         # Request task to execute
@@ -32,10 +28,14 @@ def start_task(body: dict):
         print(body)
 
         task_name = str(body["task_name"])
+        ref = str(body["ref"])
+        before = str(body["before"])
+        after = str(body["after"])
+        
 
         # Start the subprocess and get its PID
         # process = subprocess.Popen(f"bash {START_TASK_SCRIPT} {task_id}", shell=True)
-        process = subprocess.Popen(["bash", START_TASK_SCRIPT, task_name, task_id])
+        process = subprocess.Popen(["bash", START_TASK_SCRIPT, task_name, task_id, ref, before, after])
         logger.info(f"Started task with PID: {process.pid}")
 
         # Update task database with the associated process PID

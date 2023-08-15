@@ -1,15 +1,11 @@
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, HTTPException, Depends
-# from sqlalchemy import create_engine, Column, Integer, String, Sequence
-# from sqlalchemy.ext.declarative import declarative_base
-# from sqlalchemy.orm import sessionmaker
-# from bd import StateMachine, Tasks, User
-# from pydantic import BaseModel
 import json
 from datetime import datetime
 import logging
 from auth.auth import AuthHandler
 from auth.schemas import AuthDetails
+from auth.permissions import BitMapManager
 
 from infra.repository.tasks_repository import TasksRepository
 from infra.repository.machines_repository import MachinesRepository
@@ -22,20 +18,26 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 auth_handler = AuthHandler()
 
+# Restructure
+map1 = ["get", "start", "restart", "kill"]
+map2 = { "gcc": 0*len(map1), "qemu": 1*len(map1) }
+permission_handler = BitMapManager(map1, map2)
+
 tasks_repo = TasksRepository()
 machines_repo = MachinesRepository()
 users_repo = UsersRepository()
 
-# Publishes a message to an MQTT broker
+# Publishes a message to an MQTT broker
 def publish_to_mqtt(topic, **body):
     mqtt_broker = "localhost"
     mqtt_port = 1883
     mqtt_client = mqtt.Client()
-    body = json.dumps(body)
+    print(body)
+    json_body = json.dumps(body)
 
     try:
         mqtt_client.connect(mqtt_broker, mqtt_port)
-        mqtt_client.publish(topic, body)
+        mqtt_client.publish(topic, json_body)
         mqtt_client.disconnect()
     except Exception as e:
         logger.error("Error publishing to MQTT: %s", str(e))
@@ -47,18 +49,14 @@ def debug(payload: dict):
         json.dump(payload, json_file, indent=4)
 
 def task_handler():
-
     try:
-
-        task = tasks_repo.search_by_state(state="QUEUE")
-        machine = machines_repo.search_by_state(state="AVAILABLE")
-        print(f"TASK: {task}")
-        print(f"MACHINE: {machine}")
-        if task and machine:
-            tasks_repo.update(task.id, state="PENDING")
-            tasks_repo.update(task.id, machine_id=machine.id)
-            machines_repo.update(machine.id, state="PENDING")
-            publish_to_mqtt("start_task",  task_id=task.id )
+        task_id = tasks_repo.select_test("state", "QUEUE", "id")
+        machine_id = machines_repo.select_test("state", "AVAILABLE", "id")
+        if task_id and machine_id:
+            tasks_repo.update("id", task_id, state="PENDING")
+            tasks_repo.update("id", task_id, machine_id=machine_id)
+            machines_repo.update("id", machine_id, state="PENDING")
+            publish_to_mqtt("start_task",  task_id=task_id )
 
     except Exception as e:
         logger.exception("Error processing task_handler")
@@ -66,17 +64,27 @@ def task_handler():
 
 # Process webhook payload
 @app.post("/webhook")
-# def webhook_handler(payload: WebhookPayload):
 def webhook_handler(payload: dict):
     try:
+        repository_name = payload["repository"]["name"]
+        pusher_name     = payload["pusher"]["name"]
+        ref             = payload["ref"]
+        after           = payload["after"]
+        before          = payload["before"]
 
-        tasks_repo = TasksRepository()
+        if not has_permission(pusher_name, repository_name, "start"):
+            raise HTTPException(status_code=401, detail="Permission denied")
+
         tasks_repo.insert(
-            repository_name=payload["repository"]["name"],
-            pusher_name=payload["pusher"]["name"]
+            repository_name=repository_name,
+            pusher_name=pusher_name,
+            ref=ref,
+            after=after,
+            before=before
         )
          # Write payload to file for debug purposes
         debug(payload)
+
         task_handler()
 
         return payload
@@ -87,9 +95,8 @@ def webhook_handler(payload: dict):
 
 # Get all tasks
 @app.get("/tasks")
-def read_data(skip: int = 0, limit: int = 10):
+def read_data():
     try:
-
         tasks = tasks_repo.select()
         return tasks
 
@@ -98,14 +105,22 @@ def read_data(skip: int = 0, limit: int = 10):
         raise HTTPException(status_code=500, detail="Error getting tasks")
 
 # Kill a task
-@app.get("/kill_task/")
-def kill_task(id: int):
+@app.put("/kill_task")
+def kill_task(body: dict, username=Depends(auth_handler.auth_wrapper)):
     try:
+        if not users_repo.select_test("name", username, "is_superuser"):
+            repository_name = tasks_repo.select_test("id", task_id, "repository_name")
+            pusher_name = tasks_repo.select_test("id", task_id, "pusher_name")
+            if not has_permission(username, repository_name, "kill"):
+                raise HTTPException(status_code=401, detail="Permission denied")
+            if not pusher_name == username:
+                raise HTTPException(status_code=401, detail="Permission denied")
 
-        task = tasks_repo.search_by_id(id=id)
-        if task.state == "EXECUTING":
-            process_id = task.process_id
-            publish_to_mqtt("kill_task", task_id=id, process_id=process_id)
+        task_id = body["task_id"]
+        task_state = tasks_repo.select_test("id", task_id, "state")
+        task_process_id = tasks_repo.select_test("id", task_id, "process_id")
+        if task_state == "EXECUTING":
+            publish_to_mqtt("kill_task", task_id=task_id, process_id=task_process_id)
 
     except Exception as e:
         logger.exception("Error killing task: %s", str(e))
@@ -117,15 +132,15 @@ def put_data(body: dict):
     try:
 
         task_id = body["task_id"]
-        tasks_repo.update(task_id, process_id=None)
+        tasks_repo.update("id", task_id, process_id=None)
         if int(body["exit_code"]) == 0:
-            tasks_repo.update(task_id, state="PASSED")
+            tasks_repo.update("id", task_id, state="PASSED")
         else:
-            tasks_repo.update(task_id, state="FAILED")
+            tasks_repo.update("id", task_id, state="FAILED")
 
-        machine_id = tasks_repo.get_data(task_id, "machine_id")
-        machines_repo.update(machine_id, state="AVAILABLE")
-        tasks_repo.update(task_id, machine_id=None)
+        machine_id = tasks_repo.select_test("id", task_id, "machine_id")
+        machines_repo.update("id", machine_id, state="AVAILABLE")
+        tasks_repo.update("id", task_id, machine_id=None)
 
         # Call new tasks to process.
         task_handler()
@@ -141,10 +156,9 @@ def put_data(body: dict):
 @app.put("/ci_update_process_id")
 def update_process_id(body: dict):
     try:
-
         task_id = body["task_id"]
         process_id = body["process_id"]
-        tasks_repo.update(task_id, process_id=process_id)
+        tasks_repo.update("id", task_id, process_id=process_id)
 
         return body
 
@@ -163,8 +177,7 @@ def kill_task(data: dict):
     # shuts down the current execution.
     try:
         task_id = data["task_id"]
-        print(f"LUIS TASK ID: {task_id}")
-        tasks_repo.update(task_id, state="KILLED")
+        tasks_repo.update("id", task_id, state="KILLED")
 
     except Exception as e:
         logger.exception("Error marking task as killed: %s", str(e))
@@ -174,12 +187,16 @@ def kill_task(data: dict):
 @app.get("/ci_task/")
 def get_data(id: int):
     try:
-        machine_id = tasks_repo.get_data(id, "machine_id")
-        machines_repo.update(machine_id, state="RUNNING")
-        tasks_repo.update(id, state="EXECUTING")
+        machine_id = tasks_repo.select_test("id", id, "machine_id")
+        machines_repo.update("id", machine_id, state="RUNNING")
+        tasks_repo.update("id", id, state="EXECUTING")
 
-        task_name = tasks_repo.get_data(id, "repository_name")
-        body = {"task_id": id, "task_name": task_name}
+        task_name = tasks_repo.select_test("id", id, "repository_name")
+        ref = tasks_repo.select_test("id", id, "ref")
+        before = tasks_repo.select_test("id", id, "before")
+        after = tasks_repo.select_test("id", id, "after")
+        
+        body = {"task_id": id, "task_name": task_name, "ref": ref, "before": before, "after": after}
 
         return body
 
@@ -202,10 +219,10 @@ def read_machines(skip: int = 0, limit: int = 10):
 @app.post("/login")
 def login(auth_details: AuthDetails):
     try:
-        user = users_repo.select_by_name(auth_details.username)
-        user_password = users_repo.search_by_name(auth_details.username, "password")
+        user_id = users_repo.select_test("name", auth_details.username, "id")
+        user_password = users_repo.select_test("name", auth_details.username, "password")
 
-        if (user is None) or (not auth_handler.verify_password(auth_details.password, user_password)):
+        if (user_id is None) or (not auth_handler.verify_password(auth_details.password, user_password)):
             raise HTTPException(status_code=500, detail="Invalid username and/or password")
         token = auth_handler.encode_token(auth_details.username)
         return { "token": token }
@@ -214,54 +231,73 @@ def login(auth_details: AuthDetails):
         logger.exception("Error login: %s", str(e))
         raise HTTPException(status_code=500, detail="Error login")
 
+# def register(auth_details: AuthDetails):
 @app.post("/register")
-def register(auth_details: AuthDetails):
+#def register(body: dict, username=Depends(auth_handler.auth_wrapper)):
+def register(payload: dict):
     try:
-        user = users_repo.select_by_name(auth_details.username)
-        if user:
-          raise HTTPException(status_code=400, detail="Username is taken")
-        hashed_password = auth_handler.get_password_hash(auth_details.password)
-        users_repo.insert(
-            name=auth_details.username,
-            password = hashed_password,
-            permission = "common"
-        )
+        if not has_permission(username):
+            raise HTTPException(status_code=401, detail="Permission denied")
+
+        name = payload["username"]
+        if user_id:
+            raise HTTPException(status_code=400, detail="Username is taken")
+
+        hashed_password = auth_handler.get_password_hash(payload["password"])
+
+        #permissions = body["permissions"]
+        user_permissions = permission_handler.get_bit_map()
+        #for key, value in permissions.items():
+        #    user_permissions = permission_handler.add_permission(user_permissions, key, value)
+        users_repo.insert(name=name, password=hashed_password, permissions=user_permissions)
+
     except Exception as e:
         logger.exception("Error register: %s", str(e))
+        raise HTTPException(status_code=500, detail="Error register")
+
+@app.put("/change_permissions")
+def change_permissions(payload: dict, username=Depends(auth_handler.auth_wrapper)):
+    try:
+        if not has_permission(username):
+            raise HTTPException(status_code=401, detail="Permission denied")
+
+        username = payload["username"]
+        permissions = payload["permissions"]
+        
+        # TODO: Validate permissions.
+    
+        user_permissions = users_repo.select_test("name", username, "permissions")
+        user_permissions = permission_handler.add_permission(user_permissions, permissions)
+        print("PERMISSIONS")       
+        print(user_permissions) 
+        users_repo.update("name", username, permissions=user_permissions)
+    
+    except Exception as e:
+        logger.exception("Error change permission: %s", str(e))
         raise HTTPException(status_code=500, detail="Error register")
 
 @app.get("/unprotected")
 def unprotected():
   return { "hello": "world" }
 
-# @app.get("/protected", dependencies=[Depends(has_permission, required_permission="can_access_protected")])
-# @app.get("/protected", dependencies=[Depends(auth_handler.auth_wrapper), Depends(has_permission, required_permission="can_access_protected")])
-# @app.get("/protected", dependencies=[Depends(auth_handler.auth_wrapper)])
-
-def has_permission(username, required_permission=None):
+def has_permission(username, module_name=None, permission_name=None):
     try:
-        if required_permission == None:
-            return True
+        if module_name == None and permission_name == None:
+            return users_repo.select_test("name", username, "is_superuser")
 
-        user_permission = users_repo.search_by_name(username, "permission")
-        if user_permission == required_permission:
-            return True
+        user_permissions = users_repo.select_test("name", username, "permissions")
+        return permission_handler.check_bit_map(user_permissions, module=module_name, permission=permission_name)
 
-        return False
     except Exception as e:
         logger.exception("Error login: %s", str(e))
         raise HTTPException(status_code=500, detail="Error login")
 
 @app.get("/protected")
 def protected(body: dict, username=Depends(auth_handler.auth_wrapper)):
-    if not has_permission(username, "common"):
+    if not has_permission(username, "gcc", "start"):
         raise HTTPException(status_code=401, detail="Permission denied")
-    return { "name": username }
 
-# Hello World
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
+    return { "name": username }
 
 if __name__ == "__main__":
     import uvicorn
