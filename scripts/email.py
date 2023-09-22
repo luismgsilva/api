@@ -25,17 +25,17 @@ def send_email(subject, body, sender, recipients, password, attachment_path):
     msg['From'] = sender
     msg['To'] = ', '.join(recipients)
     msg['Cc'] = ', '.join(cc_recipients)
-  
+
     plain_text = "ai"
     msg.attach(MIMEText(plain_text, "plain"))
     msg.attach(MIMEText(body, "html"))
-  
+
     if attachment_path:
       with open(attachment_path, "rb") as attachment_file:
         attachment = MIMEApplication(attachment_file.read())
         attachment.add_header("Content-Disposition", "attachment", filename=attachment_path)
         msg.attach(attachment)
-    
+
     with smtplib.SMTP_SSL('localhost', 2525) as smtp_server:
       smtp_server.login(sender, password)
       all_recipients = recipients + cc_recipients

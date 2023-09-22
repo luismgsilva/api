@@ -46,7 +46,7 @@ bsf compare hs6x-gcc-baremetal-qemu HEAD -o html > "$tmp_file"
 tmpdir=$(mktemp -d)
 bsf cat hs6x-gcc-baremetal-qemu gcc.sum > "$tmpdir/gcc.sum"
 tar -cvf $tmpdir.tar $tmpdir
-python3 /scratch/luiss/bsf/api/scripts/fds3.py "$tmp_file" "$tmpdir.tar"
+python3 /scratch/luiss/bsf/api/scripts/email.py "$tmp_file" "$tmpdir.tar"
 
 
 

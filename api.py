@@ -106,7 +106,7 @@ def read_data():
 
 # Kill a task
 @app.put("/kill_task")
-def kill_task(body: dict, username=Depends(auth_handler.auth_wrapper)):
+def kill_task(payload: dict, username=Depends(auth_handler.auth_wrapper)):
     try:
         if not users_repo.select_test("name", username, "is_superuser"):
             repository_name = tasks_repo.select_test("id", task_id, "repository_name")
@@ -116,7 +116,7 @@ def kill_task(body: dict, username=Depends(auth_handler.auth_wrapper)):
             if not pusher_name == username:
                 raise HTTPException(status_code=401, detail="Permission denied")
 
-        task_id = body["task_id"]
+        task_id = payload["task_id"]
         task_state = tasks_repo.select_test("id", task_id, "state")
         task_process_id = tasks_repo.select_test("id", task_id, "process_id")
         if task_state == "EXECUTING":
@@ -128,12 +128,12 @@ def kill_task(body: dict, username=Depends(auth_handler.auth_wrapper)):
 
 # Update task status
 @app.put("/ci_task")
-def put_data(body: dict):
+def put_data(payload: dict):
     try:
 
-        task_id = body["task_id"]
+        task_id = paylaod["task_id"]
         tasks_repo.update("id", task_id, process_id=None)
-        if int(body["exit_code"]) == 0:
+        if int(payload["exit_code"]) == 0:
             tasks_repo.update("id", task_id, state="PASSED")
         else:
             tasks_repo.update("id", task_id, state="FAILED")
@@ -145,7 +145,7 @@ def put_data(body: dict):
         # Call new tasks to process.
         task_handler()
 
-        return body
+        return payload
 
 
     except Exception as e:
@@ -154,13 +154,13 @@ def put_data(body: dict):
 
 # Update process ID for a task
 @app.put("/ci_update_process_id")
-def update_process_id(body: dict):
+def update_process_id(payload: dict):
     try:
-        task_id = body["task_id"]
-        process_id = body["process_id"]
+        task_id = payload["task_id"]
+        process_id = payload["process_id"]
         tasks_repo.update("id", task_id, process_id=process_id)
 
-        return body
+        return payload
 
     except Exception as e:
         logger.exception("Error updating process ID: %s", str(e))
@@ -170,13 +170,13 @@ def update_process_id(body: dict):
 # This is being executed before the /ci_task which changes the state from "KILLED" to "FAILED"
 # Mark a task as killed
 @app.put("/kill_task_ok")
-def kill_task(data: dict):
+def kill_task(payload: dict):
 
     # The kills.sh script never dies, its its sbuprocesses that are killed
     # that means that the bsf4.sh still sends a FAILED signal to the API and
     # shuts down the current execution.
     try:
-        task_id = data["task_id"]
+        task_id = payload["task_id"]
         tasks_repo.update("id", task_id, state="KILLED")
 
     except Exception as e:
@@ -195,10 +195,16 @@ def get_data(id: int):
         ref = tasks_repo.select_test("id", id, "ref")
         before = tasks_repo.select_test("id", id, "before")
         after = tasks_repo.select_test("id", id, "after")
-        
-        body = {"task_id": id, "task_name": task_name, "ref": ref, "before": before, "after": after}
 
-        return body
+        payload = {
+            "task_id": id,
+            "task_name": task_name,
+            "ref": ref,
+            "before": before,
+            "after": after
+        }
+
+        return payload
 
 
     except Exception as e:
@@ -263,15 +269,14 @@ def change_permissions(payload: dict, username=Depends(auth_handler.auth_wrapper
 
         username = payload["username"]
         permissions = payload["permissions"]
-        
+
         # TODO: Validate permissions.
-    
+
         user_permissions = users_repo.select_test("name", username, "permissions")
         user_permissions = permission_handler.add_permission(user_permissions, permissions)
-        print("PERMISSIONS")       
-        print(user_permissions) 
+
         users_repo.update("name", username, permissions=user_permissions)
-    
+
     except Exception as e:
         logger.exception("Error change permission: %s", str(e))
         raise HTTPException(status_code=500, detail="Error register")
@@ -293,7 +298,7 @@ def has_permission(username, module_name=None, permission_name=None):
         raise HTTPException(status_code=500, detail="Error login")
 
 @app.get("/protected")
-def protected(body: dict, username=Depends(auth_handler.auth_wrapper)):
+def protected(payload: dict, username=Depends(auth_handler.auth_wrapper)):
     if not has_permission(username, "gcc", "start"):
         raise HTTPException(status_code=401, detail="Permission denied")
 

@@ -22,7 +22,7 @@ class BitMapManager:
       key = split_parts[0]
       values = split_parts[1:] if len(split_parts) > 1 else []
       result[key] = values
-    
+
     return result
 
   def add_permission(self, bit_map, permits):

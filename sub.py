@@ -31,7 +31,7 @@ def start_task(body: dict):
         ref = str(body["ref"])
         before = str(body["before"])
         after = str(body["after"])
-        
+
 
         # Start the subprocess and get its PID
         # process = subprocess.Popen(f"bash {START_TASK_SCRIPT} {task_id}", shell=True)
